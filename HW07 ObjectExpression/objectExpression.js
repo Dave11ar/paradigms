@@ -151,3 +151,89 @@ function parse(stringValue) {
 
     return stack.pop();
 }
+
+function ParsingException(message) { this.message = message }
+ParsingException.prototype = Error.prototype;
+ParsingException.prototype.name = "ParsingException";
+
+function parsePrefix(stringExpression) {
+    let pos = 0;
+
+    const skipWhitespaces = () => { while (/\s/.test(stringExpression[pos])) pos++ };
+
+    const nextToken = () => {
+        skipWhitespaces();
+        let firstPos = pos;
+
+        if (stringExpression[pos] === '(') {
+            pos++;
+            return "(";
+        }
+        if (stringExpression[pos] === ')') return ")";
+
+
+        while (pos < stringExpression.length && !/\s/.test(stringExpression[pos]) &&
+            stringExpression[pos] !== ')' && stringExpression[pos] !== '(') pos++;
+
+        return stringExpression.substr(firstPos, pos - firstPos);
+    };
+
+    const parseArguments = () => {
+        let args = [];
+        let curToken = nextToken();
+
+        do {
+            if (curToken === '(') {
+                args.push(parseFunction());
+                skipWhitespaces();
+                if (stringExpression[pos++] !== ')') {
+                    throw new ParsingException("Missing opening parenthesis for parenthesis at position: " + pos);
+                }
+            } else if (VARIABLES.includes(curToken)) {
+                args.push(new Variable(curToken));
+            } else {
+                if (curToken in FUNCTIONS_CALCULATOR) {
+                    throw new ParsingException("Expected argument, actual operator: " + curToken +
+                        ' at position: ' + (pos - curToken.length));
+                }
+
+                if (isNaN(+curToken)) {
+                    throw new ParsingException("Unknown token: " + curToken + " at position: " + (pos - curToken.length));
+                }
+                args.push(new Const(+curToken));
+            }
+
+            curToken = nextToken();
+        } while (pos < stringExpression.length && curToken !== ')');
+
+        return args;
+    };
+
+    const parseFunction = function () {
+        let operatorPos = pos;
+        let curOperator = nextToken();
+        let args = parseArguments();
+
+        if (!(curOperator in FUNCTIONS_CALCULATOR)) {
+            throw new ParsingException("Missing operator at position: " + operatorPos);
+        }
+
+        if (args.length !== FUNCTIONS_CALCULATOR[curOperator].numberOfArguments) {
+            throw new ParsingException("Wrong number of arguments for " + curOperator + "at position: " + operatorPos);
+        }
+
+        return new FUNCTIONS_CALCULATOR[curOperator].constructor(...args);
+    };
+
+    let expression = parseArguments();
+    skipWhitespaces();
+    if (expression.length !== 1 || pos < stringExpression.length) {
+        throw new ParsingException("Redundant symbols " +
+            stringExpression.substr(pos, stringExpression.length - pos) +
+                " in source string after position: " + pos);
+    }
+
+    return expression[0]
+}
+
+console.log(parsePrefix('10'));
