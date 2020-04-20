@@ -1,55 +1,20 @@
 "use strict";
 
-function cnst(...args) {
-    return (x, y, z) => args[0]
-}
+// :NOTE: copy-paste code for operators declaration (at least call for args [0] and args [1])
 
-function variable(...args) {
-    return (x, y, z) => args[0] === 'x'? x : args[0] === 'y' ? y : z
-}
+const operation = (func) => ((...args) => (...variables) => func(...args.map(arg => arg(...variables))));
 
-function add(...args) {
-    return (x, y, z) => args[0](x, y, z) + args[1](x, y, z)
-}
+const add = operation((a, b) => a + b);
+const subtract = operation((a, b) => a - b);
+const multiply = operation((a, b) => a * b);
+const divide = operation((a, b) => a / b);
+const negate = operation((a) => -a);
 
-function subtract(...args) {
-    return (x, y, z) => args[0](x, y, z) - args[1](x, y, z)
-}
+const cnst = (a) => () => a;
+const variable = (a) => (...vars) => vars[variables[a]];
 
-function multiply(...args) {
-    return (x, y, z) => args[0](x, y, z) * args[1](x, y, z)
-}
-
-function divide(...args) {
-    return (x, y, z) => args[0](x, y, z) / args[1](x, y, z)
-}
-
-function negate(...args) {
-    return (x, y, z) => -args[0](x, y, z)
-}
-
-function avg(...args) {
-    return (x, y, z) => {
-        let sum = 0;
-        for (let i = 0; i < args.length; i++) {
-            sum += args[i](x, y, z);
-        }
-
-        return sum / args.length;
-    }
-}
-
-function med(...args) {
-    return(x, y, z) => {
-        let res = [];
-        for (let i = 0; i < args.length; i++) {
-            res.push(args[i](x, y, z));
-        }
-
-        res.sort((a, b) => (a - b));
-        return res[Math.floor(args.length / 2)];
-    }
-}
+const avg = operation((...args) => args.reduce((a, b) => a + b) / args.length);
+const med = operation((...args) => args.sort((a, b) => (a - b))[Math.floor(args.length / 2)]);
 
 let functions = {
     '+' : add,
@@ -73,14 +38,20 @@ let numberOfArgs = {
     'med3' : 3
 };
 
-let variables = ['x', 'y', 'z'];
+// :NOTE: why it's not constant?
+const variables = {
+    'x' : 0,
+    'y' : 1,
+    'z' : 2
+};
 
-let constants = {
+const constants = {
     pi : cnst(Math.PI),
     e : cnst(Math.E)
 };
-const pi = cnst(Math.PI);
-const e = cnst(Math.E);
+// :NOTE: duplicated declaration of constants?
+const pi = constants.pi;
+const e = constants.e;
 
 function parse(stringValue) {
     let tokens = stringValue.split(' ').filter((token) => token.length > 0);
@@ -99,7 +70,7 @@ function parse(stringValue) {
             continue;
         }
 
-        if (variables.includes(tokens[i])) {
+        if (tokens[i] in variables) {
             stack.push(variable(tokens[i]));
             continue;
         }
