@@ -1,131 +1,137 @@
 "use strict";
 
-//:NOTE: copy-paste code for operators declaration (
-//     at least call for term [0] and term [1], and call `diff` method on each term in each declaration
-// )
-
 const VARIABLES =['x', 'y', 'z'];
-
-const FUNCTIONS_CALCULATOR = {
-    '+' : {
-        numberOfArguments : 2, // it can be calculated automatically
-        constructor : Add,
-        evaluate : (...terms) => terms.reduce((a, b) => a + b, 0),
-        diff : (variable, ...terms) => new Add(...terms.map((a) => a.diff(variable)))
-    },
-    '-' : {
-        numberOfArguments : 2,
-        constructor : Subtract,
-        evaluate: (...terms) => terms.reduce((a, b) => a - b),
-        diff : (variable, ...terms) => new Subtract(...terms.map((a) => a.diff(variable)))
-    },
-    '*' : {
-        numberOfArguments : 2,
-        constructor : Multiply,
-        evaluate : (...terms) => terms.reduce((a, b) => a * b),
-        diff : (variable, a, b) => new Add(new Multiply(a.diff(variable), b),
-            new Multiply(a, b.diff(variable)))
-    },
-    '/' : {
-        numberOfArguments : 2,
-        constructor : Divide,
-        evaluate : (...terms) => terms.reduce((a, b) => a / b),
-        diff : (variable, a, b) => new Divide(new Subtract(new Multiply(a.diff(variable), b),
-            new Multiply(a, b.diff(variable))), new Power(b, TWO))
-    },
-    'negate' : {
-        numberOfArguments : 1,
-        constructor : Negate,
-        evaluate: (a) => -a,
-        diff: (variable, a) => new Negate(a.diff(variable))
-    },
-    'log' : {
-        numberOfArguments : 2,
-        constructor : Log,
-        evaluate : (a, b) => Math.log(Math.abs(b)) / Math.log(Math.abs(a)),
-        diff : (variable, a, b) => new Divide(
-            // :NOTE: pre-define constants and use them as `Const.ZERO`, `Const.ONE`
-            new Subtract(new Multiply(new Multiply(new Divide(ONE, b), b.diff(variable)), new Log(E, a)),
-                new Multiply(new Multiply(new Divide(ONE, a), a.diff(variable)), new Log(E, b))),
-                    new Power(new Log(E, a), TWO))
-    },
-    'pow' : {
-        numberOfArguments : 2,
-        constructor : Power,
-        evaluate : (a, b) => Math.pow(a, b),
-        diff : (variable, a, b) => new Add(new Multiply(new Multiply(b,new Power(a, new Subtract(b, ONE))),
-            a.diff(variable)), new Multiply(new Multiply(new Power(a, b), new Log(E, a)), b.diff(variable)))
-    },
-    'sumexp' : {
-        numberOfArguments : -1,
-        constructor : Sumexp,
-        evaluate : (...terms) => terms.map((a) => Math.pow(Math.E, a)).reduce((a, b) => a + b, 0),
-        diff : (variable, ...terms) => new Add(...terms.map((a) => new Power(E, a))).diff(variable)
-    },
-    'softmax' : {
-        numberOfArguments : -1,
-        constructor : Softmax,
-        evaluate : (...terms) => Math.pow(Math.E, terms[0]) / FUNCTIONS_CALCULATOR.sumexp.evaluate(...terms),
-        diff : (variable, ...terms) => FUNCTIONS_CALCULATOR['/'].diff(variable, new Sumexp(terms[0]), new Sumexp(...terms))
-    }
-};
 
 const abstractFunction = {
     toString : function() {
-        return this.terms.map((a) => a.toString()).reduce((a, b) => a + ' ' + b)  + ' ' + this.sign;
+        return this.terms.map((a) => a.toString()).reduce(
+            (a, b) => a + ' ' + b)  + ' ' + this.sign
     },
-    prefix: function() {
+    prefix : function() {
         return '(' + this.sign  + (this.terms.length === 0 ?
             ' ' : this.terms.map((a) => a.prefix()).reverse().reduceRight((a, b) => a + ' ' + b , '')) + ')'
     },
-    postfix: function() {
-        return '(' + (this.terms.length !== 0 ?
-            this.terms.map((a) => a.postfix()).reverse().reduceRight((a, b) => a + ' ' + b) : '') + ' ' + this.sign + ')'
+    postfix : function() {
+        return '(' + (this.terms.length !== 0 ? this.terms.map((a) => a.postfix()).reverse().reduceRight(
+            (a, b) => a + ' ' + b) : '') + ' ' + this.sign + ')'
     },
-    evaluate : function(...args) {
-        return FUNCTIONS_CALCULATOR[this.sign].evaluate(...this.terms.map((a) => a.evaluate(...args)));
-    },
-    diff : function(variable) {
-        return FUNCTIONS_CALCULATOR[this.sign].diff(variable, ...this.terms)
-    }
+    evaluate : function (...args) { return this.operation(...this.terms.map((a) => a.evaluate(...args))) }
 };
 
-function makeFunction(sign, ...args) {
-    Object.setPrototypeOf(this, abstractFunction);
-    this.sign = sign;
-    this.terms = args;
+function OperationFactory(sign, operation, diff) {
+    const protoOperation = {
+        sign : sign,
+        operation : operation,
+        diff : diff
+    }
+    Object.setPrototypeOf(protoOperation, abstractFunction);
+
+    return protoOperation;
 }
 
-function Add(...args) { makeFunction.call(this, '+', ...args) }
-function Subtract(...args) { makeFunction.call(this, '-', ...args) }
-function Multiply(...args) { makeFunction.call(this, '*', ...args); }
-function Divide(...args) { makeFunction.call(this, '/', ...args) }
-function Negate(...args) { makeFunction.call(this, 'negate', ...args)}
-function Log(...args) { makeFunction.call(this, 'log', ...args) }
-function Power(...args) { makeFunction.call(this, 'pow', ...args) }
-function Sumexp(...args) { makeFunction.call(this, 'sumexp', ...args) }
-function Softmax(...args) { makeFunction.call(this, 'softmax', ...args) }
+Add.prototype = OperationFactory(
+    '+',
+    (a, b) => a + b,
+    function(variable) { return  new Add(...this.terms.map((a) => a.diff(variable))) }
+);
 
-function Const(a) { this.value = a }
-Const.prototype = {
-    evaluate : function() { return this.value },
+Subtract.prototype = OperationFactory(
+    '-',
+    (a, b) => a - b,
+    function(variable) { return new Subtract(...this.terms.map((a) => a.diff(variable))) }
+);
+Multiply.prototype = OperationFactory(
+    '*',
+    (a, b) => a * b,
+    function(variable) { return  new Add(new Multiply(this.terms[0].diff(variable), this.terms[1]),
+            new Multiply(this.terms[0], this.terms[1].diff(variable))) }
+);
+Divide.prototype = OperationFactory(
+    '/',
+    (a, b) => a / b,
+    function(variable) { return new Divide(new Subtract(new Multiply(this.terms[0].diff(variable), this.terms[1]),
+            new Multiply(this.terms[0], this.terms[1].diff(variable))), new Power(this.terms[1], TWO)) }
+);
+Negate.prototype = OperationFactory(
+    'negate',
+    (a) => -a,
+    function(variable) { return new Negate(this.terms[0].diff(variable)) }
+);
+Log.prototype = OperationFactory(
+    'log',
+    (a, b) => Math.log(Math.abs(b)) / Math.log(Math.abs(a)),
+    function(variable) { return new Divide(new Subtract(new Multiply(new Multiply(new Divide(ONE, this.terms[1]),
+            this.terms[1].diff(variable)), new Log(E, this.terms[0])), new Multiply(new Multiply(
+            new Divide(ONE, this.terms[0]), this.terms[0].diff(variable)), new Log(E, this.terms[1]))),
+            new Power(new Log(E, this.terms[0]), TWO)) }
+);
+Power.prototype = OperationFactory(
+    'pow',
+    (a, b) => Math.pow(a, b),
+    function(variable) { return new Add(new Multiply(new Multiply(this.terms[1], new Power(this.terms[0],
+        new Subtract(this.terms[1], ONE))), this.terms[0].diff(variable)), new Multiply(new Multiply(
+        new Power(this.terms[0], this.terms[1]), new Log(E, this.terms[0])), this.terms[1].diff(variable))) }
+);
+Sumexp.prototype = OperationFactory(
+    'sumexp',
+    (...terms) => terms.map((a) => Math.pow(Math.E, a)).reduce((a, b) => a + b, 0),
+    function(variable) {
+        if (this.terms.length === 0) return ZERO;
+        let sum = new Power(E, this.terms[0]);
+        for (let i = 1; i < this.terms.length; i++) {
+            sum = new Add(sum, new Power(E, this.terms[i]));
+        }
+        return sum.diff(variable);
+    }
+);
+Softmax.prototype = OperationFactory(
+    'softmax',
+    (...terms) =>  Math.pow(Math.E, terms[0]) / terms.map((a) => Math.pow(Math.E, a)).reduce(
+        (a, b) => a + b, 0),
+    function(variable) {
+        if (this.terms.length === 0) return ZERO;
+        let first = new Power(E, this.terms[0]);
+        return new Divide(first, new Sumexp(...this.terms)).diff(variable);
+    }
+);
+const terminal = {
+    evaluate : function(...vars) { return isNaN(+this.value) ? vars[VARIABLES.indexOf(this.value)] : this.value },
     toString : function() { return this.value.toString() },
     prefix : function() { return this.value.toString() },
     postfix : function() { return this.value.toString() },
-    diff : () => ZERO
-};
+    diff : function (...variable) { return (variable.length !== 0 && variable[0] === this.value) ? ONE : ZERO}
+}
+Const.prototype = terminal
+Variable.prototype = terminal
+
+function Add(...terms) { this.terms = terms }
+function Subtract(...terms) { this.terms = terms }
+function Multiply(...terms) { this.terms = terms }
+function Divide(...terms) { this.terms = terms }
+function Negate(...terms) { this.terms = terms }
+function Log(...terms) { this.terms = terms }
+function Power(...terms) { this.terms = terms }
+function Sumexp(...terms) { this.terms = terms }
+function Softmax(...terms) { this.terms = terms }
+function Const(a) { this.value = a }
+function Variable(a) { this.value = a }
+
 const ZERO = new Const(0);
 const ONE = new Const(1);
 const TWO = new Const(2);
 const E = new Const(Math.E);
 
-function Variable(a) { this.variable = a }
-Variable.prototype = {
-    evaluate : function(...vars) { return vars[VARIABLES.indexOf(this.variable)] },
-    toString : function() { return this.variable.toString() },
-    prefix : function() { return this.variable.toString() },
-    postfix : function() { return this.variable.toString() },
-    diff : function(variable) { return variable === this.variable ? ONE : ZERO }
+
+const constructor = {
+    '+' : Add,
+    '-' : Subtract,
+    '*' : Multiply,
+    '/' : Divide,
+    'negate' : Negate,
+    'log' : Log,
+    'pow' : Power,
+    'sumexp' : Sumexp,
+    'softmax' : Softmax,
 };
 
 function parse(stringValue) {
@@ -134,14 +140,15 @@ function parse(stringValue) {
     let stack = [];
 
     for (let i = 0; i < tokens.length; i++) {
-        if (tokens[i] in FUNCTIONS_CALCULATOR) {
+        if (tokens[i] in constructor) {
             let operationArguments = [];
-            while (operationArguments.length !== FUNCTIONS_CALCULATOR[tokens[i]].numberOfArguments) {
+            let numOfArgs = constructor[tokens[i]].prototype.operation.length;
+            while (numOfArgs !== 0 && operationArguments.length !== numOfArgs) {
                 operationArguments.push(stack.pop());
             }
             operationArguments.reverse();
 
-            stack.push(new FUNCTIONS_CALCULATOR[tokens[i]].constructor(...operationArguments));
+            stack.push(new constructor[tokens[i]](...operationArguments));
             continue;
         }
 
@@ -156,24 +163,42 @@ function parse(stringValue) {
     return stack.pop();
 }
 
-function ParsingException(message) { this.message = message }
-ParsingException.prototype = Error.prototype;
-ParsingException.prototype.name = "ParsingException";
+function ParsingError(message) { this.message = message }
+ParsingError.prototype = Error.prototype;
+ParsingError.prototype.name = "ParsingError";
+ParsingError.prototype.constructor = ParsingError;
 
-function parsePrefSuf(stringExpression, tokenConverter, argsConverter) {
+function buildParsingError(name, buildMessage) {
+    function CurError(...args) { this.message = buildMessage(...args) }
+    CurError.prototype = ParsingError.prototype;
+    CurError.prototype.name = name;
+    CurError.prototype.constructor = ParsingError;
+
+    return CurError;
+}
+
+const UnknownTokenError = buildParsingError("UnknownTokenError",
+    (pos, foundToken) => ("Unknown token " + foundToken + " at position " + pos));
+const UnexpectedTokenError = buildParsingError("OperatorError",
+    (pos, expected, foundToken) => "Expected " + expected + " at position " + pos + ", found " + foundToken)
+const WrongNumberOfArgumentsError = buildParsingError("WrongNumberOfArgumentsError",
+    (pos, operator, expected, found) => ("Wrong number of arguments for operator " + operator +
+        " at position " + pos + ", expected " + expected + " found " + found))
+
+function parsePrefSuf(stringExpression, tokenConverter, argsConverter, posConverter, closing) {
     let pos = 0;
 
     const skipWhitespaces = () => { while (/\s/.test(stringExpression[pos])) pos++ };
 
     const nextToken = () => {
         skipWhitespaces();
-        let firstPos = pos;
+        const firstPos = pos;
 
         if (stringExpression[pos] === '(') {
             pos++;
             return "(";
         }
-        if (stringExpression[pos] === ')') return ")";
+        if (stringExpression[pos] === ')') return ')';
 
 
         while (pos < stringExpression.length && !/\s/.test(stringExpression[pos]) &&
@@ -184,7 +209,7 @@ function parsePrefSuf(stringExpression, tokenConverter, argsConverter) {
 
     const parseArguments = () => {
         let args = [];
-        let curToken;
+        let curToken = '';
         while (pos < stringExpression.length && curToken !== ')') {
             curToken = tokenConverter(nextToken());
 
@@ -193,76 +218,66 @@ function parsePrefSuf(stringExpression, tokenConverter, argsConverter) {
             if (curToken === '(') {
                 args.push(parseFunction());
                 skipWhitespaces();
-                if (stringExpression[pos++] !== ')') {
-                    throw new ParsingException("Missing opening parenthesis for parenthesis at position: " + pos);
+                if (stringExpression[pos] !== ')') {
+                    throw new UnexpectedTokenError(posConverter(pos), closing, nextToken())
                 }
+                pos++;
             } else if (VARIABLES.includes(curToken)) {
                 args.push(new Variable(curToken));
             } else {
-                if (curToken in FUNCTIONS_CALCULATOR) {
-                    throw new ParsingException("Expected argument, actual operator: " + curToken +
-                        ' at position: ' + (pos - curToken.length));
+                if (curToken in constructor) {
+                    throw new UnexpectedTokenError(posConverter(pos), "argument", curToken)
                 }
 
                 if (isNaN(+curToken)) {
-                    throw new ParsingException("Unknown token: " + curToken + " at position: " + (pos - curToken.length));
+                    throw new UnknownTokenError(posConverter(pos), curToken);
                 }
                 args.push(new Const(+curToken));
             }
             skipWhitespaces();
         }
-        skipWhitespaces();
+
         return argsConverter(args);
     };
 
     const parseFunction = function () {
-        let operatorPos = pos;
-        let curOperator = tokenConverter(nextToken());
-        let args = parseArguments();
+        const operatorPos = pos;
+        const curOperator = tokenConverter(nextToken());
+        const args = parseArguments();
 
-        if (!(curOperator in FUNCTIONS_CALCULATOR)) {
-            throw new ParsingException("Missing operator at position: " + operatorPos);
+        if (!(curOperator in constructor)) {
+            throw new UnexpectedTokenError(posConverter(operatorPos), "operator", curOperator)
         }
 
-        if (FUNCTIONS_CALCULATOR[curOperator].numberOfArguments !== -1 &&
-            args.length !== FUNCTIONS_CALCULATOR[curOperator].numberOfArguments) {
-            throw new ParsingException("Wrong number of arguments for " + curOperator + "at position: " + operatorPos);
+        const numOfArgs = constructor[curOperator].prototype.operation.length;
+        if (numOfArgs !== 0 && args.length !== numOfArgs) {
+            throw new WrongNumberOfArgumentsError(posConverter(operatorPos), curOperator, numOfArgs, args.length);
         }
 
-        return new FUNCTIONS_CALCULATOR[curOperator].constructor(...args);
+        return new constructor[curOperator](...args);
     };
 
-    let expression = parseArguments();
+    const expression = parseArguments();
     skipWhitespaces();
     if (expression.length !== 1 || pos < stringExpression.length) {
-        throw new ParsingException("Redundant symbols" +
-            stringExpression.substr(pos, stringExpression.length - pos) +
-            " in source string after position: " + pos);
+        throw new UnexpectedTokenError(posConverter(pos), '\\n',  stringExpression.substr(pos, stringExpression.length - pos));
     }
 
     return expression[0]
 }
 
 function parsePrefix(stringExpression) {
-    return parsePrefSuf(stringExpression, (stringValue) => stringValue, (args) => args)
+    return parsePrefSuf(stringExpression, (stringValue) => stringValue,
+        (args) => args,
+        (pos) => pos,
+        ')')
 }
 
 function parsePostfix(stringExpression) {
-    let reverseBuff = [];
-
-    for (let i = stringExpression.length - 1; i >= 0; i--) {
-        if (stringExpression[i] === ')') {
-            reverseBuff.push('(');
-        } else if (stringExpression[i] === '(') {
-            reverseBuff.push(')')
-        } else {
-            reverseBuff.push(stringExpression[i]);
-        }
-    }
-    return parsePrefSuf(reverseBuff.toString().split(',').join(''),
+    return parsePrefSuf(stringExpression.split('').map((a) => a === ')' ? '(' : a === '(' ? ')' : a).
+        reverse().toString().split(',').join(''),
         (stringValue) => stringValue.split('').reverse().join(''),
-            (args) => args.reverse());
+        (args) => args.reverse(),
+        (pos) => stringExpression.length - pos,
+        '(');
 }
-
-//console.log((new Const(10).diff('x')).evaluate(2.0,2.0,2.0));
-console.log(ZERO.evaluate(2,2,2));

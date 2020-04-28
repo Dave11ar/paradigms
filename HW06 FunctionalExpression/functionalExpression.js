@@ -1,6 +1,7 @@
 "use strict";
 
 // :NOTE: copy-paste code for operators declaration (at least call for args [0] and args [1])
+// :NOTE: files in `.idea` in repository!
 
 const operation = (func) => ((...args) => (...variables) => func(...args.map(arg => arg(...variables))));
 
