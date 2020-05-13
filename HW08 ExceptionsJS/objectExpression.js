@@ -1,24 +1,23 @@
 "use strict";
 
+// :NOTE: common mistakes (see post in telegram about this)
+
 const VARIABLES =['x', 'y', 'z'];
 
 const abstractFunction = {
-    toString : function() {
-        return this.terms.map((a) => a.toString()).reduce(
-            (a, b) => a + ' ' + b)  + ' ' + this.sign
+    _formatOutput : function(leftBorder, rightBorder, stringFunction) {
+        return leftBorder + this.terms.map(stringFunction).join(' ') + rightBorder
     },
-    prefix : function() {
-        return '(' + this.sign  + (this.terms.length === 0 ?
-            ' ' : this.terms.map((a) => a.prefix()).reverse().reduceRight((a, b) => a + ' ' + b , '')) + ')'
-    },
-    postfix : function() {
-        return '(' + (this.terms.length !== 0 ? this.terms.map((a) => a.postfix()).reverse().reduceRight(
-            (a, b) => a + ' ' + b) : '') + ' ' + this.sign + ')'
-    },
-    evaluate : function (...args) { return this.operation(...this.terms.map((a) => a.evaluate(...args))) }
+    toString : function() { return this._formatOutput('', this.sign, (a) => a.toString()) },
+    prefix : function() { return this._formatOutput('(' + this.sign + ' ', ')', (a) => a.prefix())},
+    postfix : function() { return this._formatOutput('(', ' ' + this.sign + ')', (a) => a.postfix())},
+    evaluate : function (...args) { return this.operation(...this.terms.map((a) => a.evaluate(...args))) },
 };
 
 function OperationFactory(sign, operation, diff) {
+    let func = function (...terms) {
+        this.terms = terms;
+    }
     const protoOperation = {
         sign : sign,
         operation : operation,
@@ -26,53 +25,54 @@ function OperationFactory(sign, operation, diff) {
     }
     Object.setPrototypeOf(protoOperation, abstractFunction);
 
-    return protoOperation;
+    func.prototype = protoOperation;
+    return func;
 }
 
-Add.prototype = OperationFactory(
+const Add = OperationFactory(
     '+',
     (a, b) => a + b,
     function(variable) { return  new Add(...this.terms.map((a) => a.diff(variable))) }
 );
 
-Subtract.prototype = OperationFactory(
+const Subtract = OperationFactory(
     '-',
     (a, b) => a - b,
     function(variable) { return new Subtract(...this.terms.map((a) => a.diff(variable))) }
 );
-Multiply.prototype = OperationFactory(
+const Multiply = OperationFactory(
     '*',
     (a, b) => a * b,
     function(variable) { return  new Add(new Multiply(this.terms[0].diff(variable), this.terms[1]),
-            new Multiply(this.terms[0], this.terms[1].diff(variable))) }
+        new Multiply(this.terms[0], this.terms[1].diff(variable))) }
 );
-Divide.prototype = OperationFactory(
+const Divide = OperationFactory(
     '/',
     (a, b) => a / b,
     function(variable) { return new Divide(new Subtract(new Multiply(this.terms[0].diff(variable), this.terms[1]),
-            new Multiply(this.terms[0], this.terms[1].diff(variable))), new Power(this.terms[1], TWO)) }
+        new Multiply(this.terms[0], this.terms[1].diff(variable))), new Power(this.terms[1], TWO)) }
 );
-Negate.prototype = OperationFactory(
+const Negate = OperationFactory(
     'negate',
     (a) => -a,
     function(variable) { return new Negate(this.terms[0].diff(variable)) }
 );
-Log.prototype = OperationFactory(
+const Log = OperationFactory(
     'log',
     (a, b) => Math.log(Math.abs(b)) / Math.log(Math.abs(a)),
     function(variable) { return new Divide(new Subtract(new Multiply(new Multiply(new Divide(ONE, this.terms[1]),
-            this.terms[1].diff(variable)), new Log(E, this.terms[0])), new Multiply(new Multiply(
-            new Divide(ONE, this.terms[0]), this.terms[0].diff(variable)), new Log(E, this.terms[1]))),
-            new Power(new Log(E, this.terms[0]), TWO)) }
+        this.terms[1].diff(variable)), new Log(E, this.terms[0])), new Multiply(new Multiply(
+        new Divide(ONE, this.terms[0]), this.terms[0].diff(variable)), new Log(E, this.terms[1]))),
+        new Power(new Log(E, this.terms[0]), TWO)) }
 );
-Power.prototype = OperationFactory(
+const Power = OperationFactory(
     'pow',
     (a, b) => Math.pow(a, b),
     function(variable) { return new Add(new Multiply(new Multiply(this.terms[1], new Power(this.terms[0],
         new Subtract(this.terms[1], ONE))), this.terms[0].diff(variable)), new Multiply(new Multiply(
         new Power(this.terms[0], this.terms[1]), new Log(E, this.terms[0])), this.terms[1].diff(variable))) }
 );
-Sumexp.prototype = OperationFactory(
+const Sumexp = OperationFactory(
     'sumexp',
     (...terms) => terms.map((a) => Math.pow(Math.E, a)).reduce((a, b) => a + b, 0),
     function(variable) {
@@ -84,7 +84,7 @@ Sumexp.prototype = OperationFactory(
         return sum.diff(variable);
     }
 );
-Softmax.prototype = OperationFactory(
+const Softmax = OperationFactory(
     'softmax',
     (...terms) =>  Math.pow(Math.E, terms[0]) / terms.map((a) => Math.pow(Math.E, a)).reduce(
         (a, b) => a + b, 0),
@@ -94,33 +94,40 @@ Softmax.prototype = OperationFactory(
         return new Divide(first, new Sumexp(...this.terms)).diff(variable);
     }
 );
-const terminal = {
-    evaluate : function(...vars) { return isNaN(+this.value) ? vars[VARIABLES.indexOf(this.value)] : this.value },
+
+const abstractTerminal = {
     toString : function() { return this.value.toString() },
     prefix : function() { return this.value.toString() },
     postfix : function() { return this.value.toString() },
-    diff : function (...variable) { return (variable.length !== 0 && variable[0] === this.value) ? ONE : ZERO}
 }
-Const.prototype = terminal
-Variable.prototype = terminal
+function terminalFactory(evaluate, diff) {
+    let func = function(value) {
+        this.value = value;
+    }
 
-function Add(...terms) { this.terms = terms }
-function Subtract(...terms) { this.terms = terms }
-function Multiply(...terms) { this.terms = terms }
-function Divide(...terms) { this.terms = terms }
-function Negate(...terms) { this.terms = terms }
-function Log(...terms) { this.terms = terms }
-function Power(...terms) { this.terms = terms }
-function Sumexp(...terms) { this.terms = terms }
-function Softmax(...terms) { this.terms = terms }
-function Const(a) { this.value = a }
-function Variable(a) { this.value = a }
+    const protoTerminal = {
+        evaluate : evaluate,
+        diff : diff
+    }
+    Object.setPrototypeOf(protoTerminal, abstractTerminal);
+    func.prototype = protoTerminal;
+
+    return func;
+}
+
+const Variable = terminalFactory(
+    function(...vars) { return vars[VARIABLES.indexOf(this.value)] },
+    function(variable) { return (variable === this.value ? ONE : ZERO) }
+);
+const Const = terminalFactory(
+    function() { return this.value },
+    () => ZERO
+);
 
 const ZERO = new Const(0);
 const ONE = new Const(1);
 const TWO = new Const(2);
 const E = new Const(Math.E);
-
 
 const constructor = {
     '+' : Add,
@@ -168,7 +175,7 @@ ParsingError.prototype = Error.prototype;
 ParsingError.prototype.name = "ParsingError";
 ParsingError.prototype.constructor = ParsingError;
 
-function buildParsingError(name, buildMessage) {
+function ErrorFactory(name, buildMessage) {
     function CurError(...args) { this.message = buildMessage(...args) }
     CurError.prototype = ParsingError.prototype;
     CurError.prototype.name = name;
@@ -177,11 +184,11 @@ function buildParsingError(name, buildMessage) {
     return CurError;
 }
 
-const UnknownTokenError = buildParsingError("UnknownTokenError",
+const UnknownTokenError = ErrorFactory("UnknownTokenError",
     (pos, foundToken) => ("Unknown token " + foundToken + " at position " + pos));
-const UnexpectedTokenError = buildParsingError("OperatorError",
+const UnexpectedTokenError = ErrorFactory("OperatorError",
     (pos, expected, foundToken) => "Expected " + expected + " at position " + pos + ", found " + foundToken)
-const WrongNumberOfArgumentsError = buildParsingError("WrongNumberOfArgumentsError",
+const WrongNumberOfArgumentsError = ErrorFactory("WrongNumberOfArgumentsError",
     (pos, operator, expected, found) => ("Wrong number of arguments for operator " + operator +
         " at position " + pos + ", expected " + expected + " found " + found))
 
@@ -274,7 +281,8 @@ function parsePrefix(stringExpression) {
 }
 
 function parsePostfix(stringExpression) {
-    return parsePrefSuf(stringExpression.split('').map((a) => a === ')' ? '(' : a === '(' ? ')' : a).
+    return parsePrefSuf(
+        stringExpression.split('').map((a) => a === ')' ? '(' : a === '(' ? ')' : a).
         reverse().toString().split(',').join(''),
         (stringValue) => stringValue.split('').reverse().join(''),
         (args) => args.reverse(),
