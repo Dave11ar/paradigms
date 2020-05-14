@@ -1,6 +1,6 @@
-"use strict";
+'use strict';
 
-// :NOTE: common mistakes (see post in telegram about this)
+// :NOTE: common mistakes: 7
 
 const VARIABLES =['x', 'y', 'z'];
 
@@ -8,6 +8,7 @@ const abstractFunction = {
     _formatOutput : function(leftBorder, rightBorder, stringFunction) {
         return leftBorder + this.terms.map(stringFunction).join(' ') + rightBorder
     },
+    // :NOTE: almost good but `function ()` is useless
     toString : function() { return this._formatOutput('', this.sign, (a) => a.toString()) },
     prefix : function() { return this._formatOutput('(' + this.sign + ' ', ')', (a) => a.prefix())},
     postfix : function() { return this._formatOutput('(', ' ' + this.sign + ')', (a) => a.postfix())},
@@ -95,12 +96,13 @@ const Softmax = OperationFactory(
     }
 );
 
+// :NOTE: this still looks copy-pasted
 const abstractTerminal = {
     toString : function() { return this.value.toString() },
     prefix : function() { return this.value.toString() },
     postfix : function() { return this.value.toString() },
 }
-function terminalFactory(evaluate, diff) {
+function TerminalFactory(evaluate, diff) {
     let func = function(value) {
         this.value = value;
     }
@@ -115,11 +117,11 @@ function terminalFactory(evaluate, diff) {
     return func;
 }
 
-const Variable = terminalFactory(
+const Variable = TerminalFactory(
     function(...vars) { return vars[VARIABLES.indexOf(this.value)] },
     function(variable) { return (variable === this.value ? ONE : ZERO) }
 );
-const Const = terminalFactory(
+const Const = TerminalFactory(
     function() { return this.value },
     () => ZERO
 );
@@ -169,41 +171,47 @@ function parse(stringValue) {
 
     return stack.pop();
 }
-
-function ParsingError(message) { this.message = message }
-ParsingError.prototype = Error.prototype;
-ParsingError.prototype.name = "ParsingError";
-ParsingError.prototype.constructor = ParsingError;
-
-function ErrorFactory(name, buildMessage) {
+function errorFactory(proto, name, buildMessage) {
     function CurError(...args) { this.message = buildMessage(...args) }
-    CurError.prototype = ParsingError.prototype;
+    CurError.prototype = Object.create(proto.prototype);
     CurError.prototype.name = name;
-    CurError.prototype.constructor = ParsingError;
+    CurError.constructor = proto;
 
     return CurError;
 }
 
-const UnknownTokenError = ErrorFactory("UnknownTokenError",
-    (pos, foundToken) => ("Unknown token " + foundToken + " at position " + pos));
-const UnexpectedTokenError = ErrorFactory("OperatorError",
-    (pos, expected, foundToken) => "Expected " + expected + " at position " + pos + ", found " + foundToken)
-const WrongNumberOfArgumentsError = ErrorFactory("WrongNumberOfArgumentsError",
-    (pos, operator, expected, found) => ("Wrong number of arguments for operator " + operator +
-        " at position " + pos + ", expected " + expected + " found " + found))
+const ParsingError = errorFactory(Error, 'ParsingError', (message) => message);
+
+const UnknownTokenError = errorFactory(ParsingError, 'UnknownTokenError',
+    (pos, foundToken) => ('Unknown token ' + foundToken + ' at position ' + pos));
+const UnexpectedTokenError = errorFactory(ParsingError, 'OperatorError',
+    (pos, expected, foundToken) => 'Expected ' + expected + ' at position ' + pos + ', found ' + foundToken)
+const WrongNumberOfArgumentsError = errorFactory(ParsingError, 'WrongNumberOfArgumentsError',
+    (pos, operator, expected, found) => ('Wrong number of arguments for operator ' + operator +
+        ' at position ' + pos + ', expected ' + expected + ' found ' + found))
+const BracketNotFoundError = errorFactory(UnexpectedTokenError, 'BracketNotFoundError',
+    (pos, expected, foundToken) => 'Expected ' + expected + ' at position ' + pos + ', found ' + foundToken)
+const EndOfFiletNotFoundError = errorFactory(UnexpectedTokenError, 'EndOfFiletNotFoundError',
+    (pos, foundToken) => 'Expected end of file at position ' + pos + ', found ' + foundToken)
 
 function parsePrefSuf(stringExpression, tokenConverter, argsConverter, posConverter, closing) {
     let pos = 0;
 
-    const skipWhitespaces = () => { while (/\s/.test(stringExpression[pos])) pos++ };
+    function skipWhitespaces() { while (/\s/.test(stringExpression[pos])) pos++ }
 
-    const nextToken = () => {
+    function test(condition, curError, ...args) {
+        if (condition) {
+            throw new curError(...args);
+        }
+    }
+
+    function nextToken() {
         skipWhitespaces();
         const firstPos = pos;
 
         if (stringExpression[pos] === '(') {
             pos++;
-            return "(";
+            return '(';
         }
         if (stringExpression[pos] === ')') return ')';
 
@@ -212,9 +220,9 @@ function parsePrefSuf(stringExpression, tokenConverter, argsConverter, posConver
         stringExpression[pos] !== ')' && stringExpression[pos] !== '(') pos++;
 
         return stringExpression.substr(firstPos, pos - firstPos);
-    };
+    }
 
-    const parseArguments = () => {
+    function parseArguments() {
         let args = [];
         let curToken = '';
         while (pos < stringExpression.length && curToken !== ')') {
@@ -225,50 +233,44 @@ function parsePrefSuf(stringExpression, tokenConverter, argsConverter, posConver
             if (curToken === '(') {
                 args.push(parseFunction());
                 skipWhitespaces();
-                if (stringExpression[pos] !== ')') {
-                    throw new UnexpectedTokenError(posConverter(pos), closing, nextToken())
-                }
+                test(stringExpression[pos] !== ')', BracketNotFoundError,
+                    posConverter(pos), closing, nextToken())
                 pos++;
             } else if (VARIABLES.includes(curToken)) {
                 args.push(new Variable(curToken));
             } else {
-                if (curToken in constructor) {
-                    throw new UnexpectedTokenError(posConverter(pos), "argument", curToken)
-                }
+                test(curToken in constructor, UnexpectedTokenError,
+                    posConverter(pos), 'argument', curToken)
+                test(isNaN(+curToken), UnknownTokenError,
+                    posConverter(pos), curToken)
 
-                if (isNaN(+curToken)) {
-                    throw new UnknownTokenError(posConverter(pos), curToken);
-                }
                 args.push(new Const(+curToken));
             }
             skipWhitespaces();
         }
 
         return argsConverter(args);
-    };
+    }
 
-    const parseFunction = function () {
+    function parseFunction() {
         const operatorPos = pos;
         const curOperator = tokenConverter(nextToken());
         const args = parseArguments();
 
-        if (!(curOperator in constructor)) {
-            throw new UnexpectedTokenError(posConverter(operatorPos), "operator", curOperator)
-        }
+        test(!(curOperator in constructor), UnexpectedTokenError,
+            posConverter(operatorPos), 'operator', curOperator)
 
         const numOfArgs = constructor[curOperator].prototype.operation.length;
-        if (numOfArgs !== 0 && args.length !== numOfArgs) {
-            throw new WrongNumberOfArgumentsError(posConverter(operatorPos), curOperator, numOfArgs, args.length);
-        }
+        test(numOfArgs !== 0 && args.length !== numOfArgs, WrongNumberOfArgumentsError,
+            posConverter(operatorPos), curOperator, numOfArgs, args.length)
 
         return new constructor[curOperator](...args);
-    };
+    }
 
     const expression = parseArguments();
     skipWhitespaces();
-    if (expression.length !== 1 || pos < stringExpression.length) {
-        throw new UnexpectedTokenError(posConverter(pos), '\\n',  stringExpression.substr(pos, stringExpression.length - pos));
-    }
+    test(expression.length !== 1 || pos < stringExpression.length, EndOfFiletNotFoundError,
+        posConverter(pos),  stringExpression.substr(pos, stringExpression.length - pos))
 
     return expression[0]
 }
