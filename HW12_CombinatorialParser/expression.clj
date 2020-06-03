@@ -6,7 +6,6 @@
 (defn abstractFunc [f]
   (fn [& expr] (fn [cur_vars] (apply f (mapv #(% cur_vars) expr)))))
 
-(comment ":NOTE: value is redundant here")
 (defn constant [value] (constantly value))
 (defn variable [cur_var] #(get % cur_var))
 (def add (abstractFunc +))
@@ -69,13 +68,13 @@
   (toString [this] (str "(" sign " " (clojure.string/join " " (mapv #(.toString %) args)) ")"))
   (toStringInfix [this] (if (= (count args) 1) (str sign "(" (.toStringInfix (first args)) ")")
                                                (str "(" (clojure.string/join (str " " sign " ") (map #(.toStringInfix %) args)) ")")))
-  (diff [this cur_var] (apply dff  cur_var args)))
+  (diff [this cur_var] (dff (vector args (mapv #(.diff % cur_var) args)))))
 
 (defn createExpression [func sign dff]
   #(abstractExpression. func sign dff %&))
 
 (defn simpleDiff [func]
-  (letfn [(createDiff [func cur_var & args] (apply func (mapv #(.diff % cur_var) args)))]
+  (letfn [(createDiff [func [args diffArgs]] (apply func diffArgs))]
     (partial createDiff func)))
 
 (def Add
@@ -90,23 +89,24 @@
   (createExpression -
                     "negate"
                     (simpleDiff #(apply Negate %&))))
-(comment ":NOTE: call for diff of operands not in abstraction")
 (def Multiply
   (createExpression *
                     "*"
-                    (fn [cur_var & args] (if (= (count args) 1)
-                                      (.diff (first args) cur_var)
-                                      (Add (apply Multiply (.diff (first args) cur_var) (rest args))
-                                           (Multiply (first args) (.diff (apply Multiply (rest args)) cur_var)))))))
+                    (fn [[args diffArgs]] (second
+                                            (reduce (fn [[exprX exprDX] [x dx]]
+                                                      (vector (Multiply exprX x)
+                                                              (Add (Multiply exprX dx) (Multiply exprDX x))))
+                                                    (mapv vector args diffArgs))))))
 (def Divide
   (createExpression (fn [a & args] (/ (double a) (apply * args)))
                     "/"
-                    (fn [cur_var & args] (if (= (count args) 1)
-                                      (.diff (first args) cur_var)
-                                      (Divide (Subtract (apply Multiply (.diff (first args) cur_var) (rest args))
-                                                        (Multiply (first args)
-                                                                  (.diff (apply Multiply (rest args)) cur_var)))
-                                              (Multiply (second args) (second args)))))))
+                    (fn [[args diffArgs]] (Divide (second
+                                                    (reduce (fn [[exprX exprDX] [x dx]]
+                                                              (vector (Multiply exprX x)
+                                                                      (Subtract (Multiply exprDX x) (Multiply exprX dx))))
+                                                            (mapv vector args diffArgs)))
+                                                  (Multiply (apply Multiply (rest args))
+                                                            (apply Multiply (rest args)))))))
 (def Sum
   (createExpression +
                     "sum"
@@ -114,8 +114,8 @@
 (def Avg
   (createExpression (fn [& args] (/ (apply + args) (count args)))
                     "avg"
-                    (fn [cur_var & args] (.diff (Divide (apply Sum args)
-                                                        (Constant (count args))) cur_var))))
+                    (fn [[args diffArgs]] (Divide (apply Sum diffArgs)
+                                                  (Constant (count args))))))
 (def Pow
   (createExpression #(Math/pow %1 %2)
                     "**"
@@ -225,92 +225,68 @@
 
 (defn +str [p] (+map (partial apply str) p))
 
-
-(comment "JSON parser")
-
 (comment "Simple parsers")
-(def *digit (+char "0123456789"))
+(def *digit (+char "0123456789."))
 (def *number (+map read-string (+str (+plus *digit))))
-
-(def *string
-  (+seqn 1 (+char "\"") (+str (+star (+char-not "\""))) (+char "\"")))
-
-(def *space (+char " \t\n\r"))
-(def *ws (+ignore (+star *space)))
-
-(def *null (+seqf (constantly 'null) (+char "n") (+char "u") (+char "l") (+char "l")))
-
+(def *string (+seqn 1 (+char "\"") (+str (+star (+char-not "\""))) (+char "\"")))
 (def *all-chars (mapv char (range 32 128)))
+(def *space (+char (apply str (filter #(Character/isWhitespace %) *all-chars))))
+(def *ws (+ignore (+star *space)))
 (def *letter (+char (apply str (filter #(Character/isLetter %) *all-chars))))
 (def *identifier (+str (+seqf cons *letter (+star (+or *letter *digit)))))
-
+(def *str (fn [s] (+ignore (apply +seq (mapv #(+char (str %1)) (seq s))))))
+(def *number (+map read-string (+str (+or (+plus *digit)
+                                     (+seqf cons *ws (+char "-") (+plus *digit))))))
+(def *variable (+str (+plus *letter)))
 (comment "Array")
 (defn *array [p]
   (+seqn 1 (+char "[") p (+char "]")))
-
 (defn *array [p]
   (+seqn 1 (+char "[") (+opt p) (+char "]")))
-
 (defn *array [p]
   (+seqn 1 (+char "[") (+opt (+seq p (+star (+seqn 1 (+char ",") p)))) (+char "]")))
-
 (defn *array [p]
   (+seqn 1 (+char "[") (+opt (+seqf cons p (+star (+seqn 1 (+char ",") p)))) (+char "]")))
-
 (defn *array [p]
   (+seqn 1 (+char "[") (+opt (+seqf cons *ws p (+star (+seqn 1 *ws (+char ",") *ws p)))) *ws (+char "]")))
-
 (defn *seq [begin p end]
   (+seqn 1 (+char begin) (+opt (+seqf cons *ws p (+star (+seqn 1 *ws (+char ",") *ws p)))) *ws (+char end)))
 (defn *array [p] (*seq "[" p "]"))
 
 (comment "Objects")
 (defn *member [p] (+seq *identifier *ws (+ignore (+char ":")) *ws p))
-
 (defn *object [p] (*seq "{" (*member p) "}"))
-
 (defn *object [p] (+map (partial reduce #(apply assoc %1 %2) {}) (*seq "{" (*member p) "}")))
 
-(def parseObjectInfix
-  (let
-    [*str (fn [s] (+ignore (apply +seq (mapv #(+char (str %1)) (seq s)))))
-     *all-chars (mapv char (range 0 128))
-     *letter (+char (apply str (filter #(Character/isLetter %) *all-chars)))
-     *digit (+char "1234567890.")
-     *space (+char (apply str (filter #(Character/isWhitespace %) *all-chars)))
-     *ws (+ignore (+star *space))
-     *number (+map read-string (+str (+or (+plus *digit)
-                                          (+seqf cons *ws (+char "-") (+plus *digit)))))
-     *variable (+str (+plus *letter))
-     *objects [{"+" Add "-" Subtract},
+
+
+(comment "MyParser")
+(def *objects [{"+" Add "-" Subtract},
                {"*" Multiply "/" Divide}
-               {"**" Pow "//" Log}]]
-    (letfn [(*parseUnary [] (+or (+map Constant *number)
-                                 (+map Negate (+seqn 0 (*str "negate") *ws (delay (*parseUnary)) *ws))
-                                 (+map Variable *variable)
-                                 (+seqn 1 (+char "(") *ws (delay (*parseBinary 0)) *ws (+char ")") *ws)))
-            (*parseBinary [level]
-              (let [*leftFolder (partial reduce (fn [first [oper second]] (oper first second)))
-                    *rightFolder (fn [args]
-                                   (letfn [(recFolder [rec-args]
-                                             (let [first-operand (second (first rec-args))
-                                                   operation (first (second rec-args))
-                                                   second-operand (second (second rec-args))]
-                                               (if (== (count rec-args) 1) first-operand
-                                                                           (operation first-operand
-                                                                                      (recFolder (rest rec-args))))))]
-                                     (if (== (count args) 1) (first args)
-                                                             ((first (second args)) (first args)
-                                                                                    (recFolder (rest args))))))
-                    *parseOperation (fn [operations]
-                                      (apply +or (mapv (fn [[key val]] (+seqf (constantly val) (*str key))) operations)))
-                    *nextLevel (fn [level]
-                                 (if (== (+ level 1) (count *objects)) (*parseUnary)
-                                                                       (*parseBinary (+ level 1))))
-                    *getFolder (fn [level] (if (== level 2) *rightFolder
-                                                            *leftFolder))
-                    *operand (*nextLevel level)
-                    *operation (nth *objects level)]
-                (+map (*getFolder level) (+seqf cons *operand (+star (+seq *ws (*parseOperation *operation) *ws *operand))))))
-            ]
-      (+parser (+seqn 0 *ws (*parseBinary 0) *ws)))))
+               {"**" Pow "//" Log}])
+(declare *parseBinary)
+
+(def *parseUnary #(+or (+map Constant *number)
+                       (+map Negate (+seqn 0 (*str "negate") *ws (delay (*parseUnary)) *ws))
+                       (+map Variable *variable)
+                       (+seqn 1 (+char "(") *ws (delay (*parseBinary 0)) *ws (+char ")") *ws)))
+
+(def *parseBinary
+  #(let [*leftFolder (partial reduce (fn [fir [oper sec]] (oper fir sec)))
+         *rightFolder (fn [args]
+                        (letfn [(recFolder [fir rec-rest]
+                                  (if (empty? rec-rest) fir
+                                                        ((first (first rec-rest))
+                                                         fir (recFolder (second (first rec-rest)) (rest rec-rest)))))]
+                          (recFolder (first args) (rest args))))
+         *parseOperation (fn [operations]
+                           (apply +or (mapv (fn [[key val]] (+seqf (constantly val) (*str key))) operations)))
+         *nextLevel (fn [level] (if (== (+ level 1) (count *objects)) (delay (*parseUnary))
+                                                                      (delay (*parseBinary (+ level 1)))))
+         *getFolder (fn [level] (if (== level 2) *rightFolder
+                                                 *leftFolder))
+         *operand (*nextLevel %)
+         *operation (nth *objects %)] (+map (*getFolder %)
+                                            (+seqf cons *operand (+star (+seq *ws (*parseOperation *operation) *ws *operand))))))
+
+(def parseObjectInfix (+parser (+seqn 0 *ws (*parseBinary 0) *ws)))
