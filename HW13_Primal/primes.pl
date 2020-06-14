@@ -1,23 +1,21 @@
-%HW13 rewiew
-
 init(MAXN) :-
-		M is MAXN + 1,
-		erat_mem(2, M).
+    M is MAXN + 1,
+    erat_mem(2, M).
 
 erat_table(0).
 erat_table(1).
 
 erat_mem(N, MAXN) :-
-		N * N < MAXN,
-		N1 is N + 1, not erat_mem(N1, MAXN),
-		not erat_table(N),
-		N2 is N * N, erat_cycle(N2, MAXN, N).
+    N * N < MAXN,
+    N1 is N + 1, not erat_mem(N1, MAXN),
+    not erat_table(N),
+    N2 is N * N, erat_cycle(N2, MAXN, N).
 
 erat_cycle(N, MAXN, HOD) :-
-		N < MAXN,
-		assert(erat_table(N)),
-		M is N + HOD,
-		erat_cycle(M, MAXN, HOD).
+    N < MAXN,
+    assert(erat_table(N)),
+    M is N + HOD,
+    erat_cycle(M, MAXN, HOD).
 
 prime(N) :- not erat_table(N), !.
 composite(N) :- erat_table(N), !.

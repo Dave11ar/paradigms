@@ -1,14 +1,11 @@
 'use strict';
 
-// :NOTE: common mistakes: 7
-
 const VARIABLES =['x', 'y', 'z'];
 
 const abstractFunction = {
     _formatOutput : function(leftBorder, rightBorder, stringFunction) {
         return leftBorder + this.terms.map(stringFunction).join(' ') + rightBorder
     },
-    // :NOTE: almost good but `function ()` is useless
     toString : function() { return this._formatOutput('', this.sign, (a) => a.toString()) },
     prefix : function() { return this._formatOutput('(' + this.sign + ' ', ')', (a) => a.prefix())},
     postfix : function() { return this._formatOutput('(', ' ' + this.sign + ')', (a) => a.postfix())},
@@ -96,7 +93,6 @@ const Softmax = OperationFactory(
     }
 );
 
-// :NOTE: this still looks copy-pasted
 const abstractTerminal = {
     toString : function() { return this.value.toString() },
     prefix : function() { return this.value.toString() },

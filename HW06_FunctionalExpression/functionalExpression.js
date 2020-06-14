@@ -1,8 +1,5 @@
 "use strict";
 
-// :NOTE: copy-paste code for operators declaration (at least call for args [0] and args [1])
-// :NOTE: files in `.idea` in repository!
-
 const operation = (func) => ((...args) => (...variables) => func(...args.map(arg => arg(...variables))));
 
 const add = operation((a, b) => a + b);
@@ -39,7 +36,6 @@ let numberOfArgs = {
     'med3' : 3
 };
 
-// :NOTE: why it's not constant?
 const variables = {
     'x' : 0,
     'y' : 1,
@@ -50,7 +46,7 @@ const constants = {
     pi : cnst(Math.PI),
     e : cnst(Math.E)
 };
-// :NOTE: duplicated declaration of constants?
+
 const pi = constants.pi;
 const e = constants.e;
 

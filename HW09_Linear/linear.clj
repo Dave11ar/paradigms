@@ -1,4 +1,4 @@
-;rewiew
+
 (defn size-equals? [args] (every? #(and (vector? %)
                                         (= (count (first args))
                                            (count %)))
@@ -27,7 +27,6 @@
       {:pre [(every? check-type args)]}
       (apply recur-oper args))))
 
-(comment ":NOTE: you can pass `opeeration` implicitly, now it looks like copy-paste")
 (defn create-v [operation] (abstract-coord isVector? operation))
 (defn create-m [operation] (abstract-coord isMatrix? operation))
 (defn create-t [operation] (abstract-coord isTensor? operation))
